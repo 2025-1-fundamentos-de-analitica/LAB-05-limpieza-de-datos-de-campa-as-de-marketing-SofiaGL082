@@ -4,6 +4,13 @@ Escriba el codigo que ejecute la accion solicitada.
 
 # pylint: disable=import-outside-toplevel
 
+import pandas as pd
+import zipfile
+from pathlib import Path
+from datetime import datetime
+
+
+
 
 def clean_campaign_data():
     """
@@ -49,6 +56,71 @@ def clean_campaign_data():
 
 
     """
+
+    input_dir = Path('files/input')
+    output_dir = Path('files/output')
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    tablas = []
+    for zip_path in input_dir.glob('*.csv.zip'):
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            for nombre in z.namelist():
+                if nombre.lower().endswith('.csv'):
+                    with z.open(nombre) as f:
+                        df = pd.read_csv(f)
+                        tablas.append(df)
+
+    if not tablas:
+        print('No se encontró ningún CSV dentro de los ZIP en', input_dir)
+        return
+    
+    datos = pd.concat(tablas, ignore_index=True)
+
+    df_client = pd.DataFrame({
+        'client_id': datos['client_id'],
+        "age": datos['age'].astype(int),
+        'job': datos['job'].str.replace(r"\.", "", regex=True).str.replace("-", "_"),
+        'marital': datos['marital'],
+        'education': datos['education'].replace("unknown", pd.NA).str.replace(r"\.", "_", regex=True),
+        'credit_default': datos['credit_default'].apply(lambda x: 1 if x == 'yes' else 0),
+        'mortgage': datos['mortgage'].apply(lambda x: 1 if x == 'yes' else 0),
+    })
+
+    df_client.to_csv(output_dir / "client.csv", index=False)
+
+    months = {
+        "jan": "01",
+        "feb": "02",
+        "mar": "03",
+        "apr": "04",
+        "may": "05",
+        "jun": "06",
+        "jul": "07",
+        "aug": "08",
+        "sep": "09",
+        "oct": "10",
+        "nov": "11",
+        "dec": "12",
+    }
+
+    meses = datos['month'].map(lambda x: months[x])
+    dias = datos['day'].astype(int).astype(str).str.zfill(2)
+    fechas = pd.to_datetime(dias + '-' + meses + '-2022', format='%d-%m-%Y')
+    df_campaign = pd.DataFrame({
+        'client_id': datos["client_id"],
+        'number_contacts': datos['number_contacts'],
+        'contact_duration': datos['contact_duration'],
+        'previous_campaign_contacts': datos['previous_campaign_contacts'],
+        'previous_outcome': datos['previous_outcome'].apply(lambda x: 1 if x == 'success' else 0),
+        'campaign_outcome': datos['campaign_outcome'].apply(lambda x: 1 if x == 'yes' else 0),
+        'last_contact_date': fechas.dt.strftime("%Y-%m-%d")
+    })
+
+    df_campaign.to_csv(output_dir / 'campaign.csv', index=False)
+
+    df_econ = datos[['client_id', 'cons_price_idx', 'euribor_three_months']].copy()
+    df_econ.columns = ['client_id', 'cons_price_idx', 'euribor_three_months']
+    df_econ.to_csv(output_dir / "economics.csv", index=False)
 
     return
 
